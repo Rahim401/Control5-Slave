@@ -24,6 +24,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        println("Started Listening")
+        WorkerBridge.searchForWork()
+        super.onStart()
+    }
+
+    override fun onStop() {
+        println("Stopped Listening")
+        WorkerBridge.stopListening()
+        super.onStop()
+    }
 }
 
 @Composable
