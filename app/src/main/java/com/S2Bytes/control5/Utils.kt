@@ -1,7 +1,11 @@
 package com.S2Bytes.control5
 
 import java.net.DatagramPacket
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.SocketAddress
+import java.net.SocketException
+import java.util.Enumeration
 import kotlin.math.min
 
 
@@ -58,27 +62,28 @@ fun ByteArray.pad(idx: Int=0,length:Int){
 }
 
 
-
+fun ByteArray.getBInt(idx: Int) = get(idx).toInt().and(0xFF)
+fun ByteArray.getBLong(idx: Int) = get(idx).toLong().and(0xFF)
 fun ByteArray.getShort(idx:Int=0):Short =
-    get(idx).toInt().shl(8)
-        .or(get(idx+1).toInt())
+    getBInt(idx).shl(8)
+        .or(getBInt(idx+1))
         .toShort()
 
 fun ByteArray.getInt(idx:Int=0):Int =
-    get(idx).toInt().shl(24)
-        .or(get(idx+1).toInt().shl(16))
-        .or(get(idx+2).toInt().shl(8))
-        .or(get(idx).toInt())
+    getBInt(idx).shl(24)
+        .or(getBInt(idx+1).shl(16))
+        .or(getBInt(idx+2).shl(8))
+        .or(getBInt(idx+3))
 
 fun ByteArray.getLong(idx:Int=0):Long =
-    get(idx).toLong().shl(56)
-        .or(get(idx+1).toLong().shl(48))
-        .or(get(idx+2).toLong().shl(40))
-        .or(get(idx+2).toLong().shl(32))
-        .or(get(idx+2).toLong().shl(24))
-        .or(get(idx+2).toLong().shl(16))
-        .or(get(idx+2).toLong().shl(8))
-        .or(get(idx).toLong())
+    getBLong(idx).shl(56)
+        .or(getBLong(idx+1).shl(48))
+        .or(getBLong(idx+2).shl(40))
+        .or(getBLong(idx+3).shl(32))
+        .or(getBLong(idx+4).shl(24))
+        .or(getBLong(idx+5).shl(16))
+        .or(getBLong(idx+6).shl(8))
+        .or(getBLong(idx+7))
 
 fun ByteArray.getString(idx:Int=0,length: Int=size)
     = decodeToString(idx,idx+length)
@@ -96,10 +101,29 @@ data class Master(
                 return null
             return Master(
                 socketAddress,
-                "Test",
+                "RahimsComp",
                 5
             )
         }
     }
 
+}
+
+fun getIpAddress(): List<String>{
+    val ipAddresses = mutableListOf<String>()
+    try {
+        val en: Enumeration<NetworkInterface> = NetworkInterface.getNetworkInterfaces()
+        while (en.hasMoreElements()) {
+            val intF: NetworkInterface = en.nextElement()
+            if (!intF.isLoopback) {
+                for (addr in intF.interfaceAddresses) {
+                    if(addr.broadcast!=null && addr.address is Inet4Address)
+                        ipAddresses.add(addr.address.hostAddress ?: "0.0.0.0")
+                }
+            }
+        }
+    } catch (e: SocketException) {
+        e.printStackTrace()
+    }
+    return ipAddresses
 }

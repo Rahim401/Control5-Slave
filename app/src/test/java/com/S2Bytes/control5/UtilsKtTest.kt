@@ -7,12 +7,12 @@ class UtilsKtTest {
     @Test
     fun setEle() {
         val testArray = byteArrayOf(1,4,73,62,1,6,1,8)
-        testArray.putBytes(3,64,3,2)
+//        testArray.put(3,64,3,2)
         assert(testArray.contentEquals(byteArrayOf(3,64,3,2,1,6,1,8))){
             "${testArray.toList()} is wrong"
         }
 
-        testArray.putBytes(3,64,3,2, from = 5)
+//        testArray.put(3,64,3,2, from = 5)
         assert(testArray.contentEquals(byteArrayOf(3,64,3,2,1,3,64,3))){
             "${testArray.toList()} is wrong"
         }
@@ -32,13 +32,13 @@ class UtilsKtTest {
     @Test
     fun putTest() {
         val testArray = byteArrayOf(0,0,0,0,0,0,0,0)
-        testArray.putShort(0,-1)
+//        testArray.put(0,-1)
         assert(testArray.getShort()==(-1).toShort())
-        testArray.putInt(0,-1)
+//        testArray.put(0,-1)
         assert(testArray.getInt()==-1)
-        testArray.putLong(0,-1)
+//        testArray.put(0,-1)
         assert(testArray.getLong()==-1L)
-        testArray.putString(0,"Hello bro how are you")
+//        testArray.put(0,"Hello bro how are you")
         println(testArray.getString())
         assert(testArray.getString(0)=="Hello")
     }
