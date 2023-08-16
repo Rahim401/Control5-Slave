@@ -97,7 +97,7 @@ data class Master(
 
     companion object{
         fun DatagramPacket.getMaster():Master?{
-            if(data.getShort().toInt()!=8)
+            if(data.getShort()!=8.toShort() || data[3]!=0.toByte())
                 return null
             return Master(
                 socketAddress,

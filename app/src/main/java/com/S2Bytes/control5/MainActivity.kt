@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
                     MyApp(bridgeState,connectedTo,logMessages){
                         when(bridgeState){
                             States.Idle ->
-                                WorkerBridge.searchForWork()
+                                WorkerBridge.listenForWork()
                             States.Listening,States.Working ->
                                 WorkerBridge.stopListening()
                             else -> {}
@@ -54,6 +54,12 @@ class MainActivity : ComponentActivity() {
 
                 override fun onJoinedWork(to: Master) {
                     connectedTo = to
+//                    uiHandler?.post {
+//                        for(i in 0 until 400){
+//                            WorkerBridge.sendDI(20,i)
+////                            uiHandler?.postDelayed({ WorkerBridge.sendDI(20,i) },i*50L)
+//                        }
+//                    }
                 }
 
                 override fun onLeftWork(by: String) {

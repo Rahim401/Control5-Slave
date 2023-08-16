@@ -4,9 +4,14 @@ import android.os.Build
 import android.os.Handler
 import com.S2Bytes.control5.Master.Companion.getMaster
 import com.S2Bytes.control5.ui.composable.LogMsg
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.IOException
+import java.net.ConnectException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import kotlin.concurrent.thread
@@ -28,6 +33,7 @@ object WorkerBridge {
     }
 
     const val MainPort = 32654
+    const val DataPort = MainPort+1
     private const val InitPkSize = 64
     private const val DataPkSize = 6
     private const val deviceName = "Rahim's Droid"
@@ -48,13 +54,36 @@ object WorkerBridge {
         }
     private var workingFor:Master? = null
 
-    private val mainSkLane = DatagramSocket(MainPort)
+    private val mainDSkLane = DatagramSocket(MainPort)
+    private val srvSSk = ServerSocket().apply {
+        soTimeout = 100
+        reuseAddress = true
+        bind(InetSocketAddress(DataPort))
+    }
     private val recvBuf = ByteArray(BufSize)
     private val sndBuf = ByteArray(BufSize)
     private val recvPk = DatagramPacket(recvBuf, DataPkSize)
     private val sndPk = DatagramPacket(sndBuf, DataPkSize)
 
-    private val streamSkLanes:List<Socket> = ArrayList()
+    private var dataSSkLane:Socket? = null
+        set(value) {
+            if(field==value)
+                return
+
+            field = value
+            if(value!=null){
+                dataInStream = DataInputStream(value.getInputStream())
+                dataOutStream = DataOutputStream(value.getOutputStream())
+            }
+            else{
+                dataInStream = null
+                dataOutStream = null
+            }
+        }
+
+    private var dataInStream:DataInputStream? = null
+    private var dataOutStream:DataOutputStream? = null
+    private val extraSSkLanes:List<Socket> = ArrayList()
 
     private var sndThr:Thread? = null
     private var stateCB: BridgeStCallback? = null
@@ -71,17 +100,17 @@ object WorkerBridge {
     }
 
     fun isListening() = currentState!=States.Idle
-    fun searchForWork(){
+    fun listenForWork(){
         if(currentState!=States.Idle)
             return
 
         currentState = States.Listening
         thread {
-            mainSkLane.soTimeout = 100
+            mainDSkLane.soTimeout = 100
             var lastScanPackId:Byte = 0
 
             while(currentState==States.Listening){
-                try{ mainSkLane.receive(recvPk) }
+                try{ mainDSkLane.receive(recvPk) }
                 catch (e:SocketTimeoutException){ continue }
 
                 val requestId = recvPk.data.getShort()
@@ -93,7 +122,7 @@ object WorkerBridge {
                             putBytes(lastScanPackId,0,0,0, from = 2)
                         }
                         sndPk.socketAddress = recvPk.socketAddress
-                        mainSkLane.send(sndPk)
+                        mainDSkLane.send(sndPk)
                     }
                     8 ->{
                         if(recvPk.data[4]==0.toByte())
@@ -113,35 +142,46 @@ object WorkerBridge {
         currentState = States.JoiningWork
         try {
             sndPk.socketAddress = requestFrom.getSockAddress()
-            sndPk.data.apply {
-                putShort(0, 8)
-                set(2, recvPk.data[2])
-                set(3, 1)
-                putInt(4, -1)
-                putInt(8, Build.VERSION.SDK_INT)
-            }
-            sndPk.setData(sndPk.data,0, InitPkSize)
+            sndBuf.putShort(0,8)
+            sndBuf.putBytes(recvBuf[2], 1, 0, 0,from = 2)
+            sndPk.setData(sndBuf,0, DataPkSize)
+            mainDSkLane.send(sndPk)
 
-            mainSkLane.send(sndPk)
-            mainSkLane.soTimeout = 100
-            do{ mainSkLane.receive(recvPk); } while(
-                recvPk.socketAddress!=requestFrom.getSockAddress()
-                || recvPk.length!=6 || recvBuf.getShort()!=9.toShort()
-            )
+            val waitTill = System.currentTimeMillis()+100
+            while (dataSSkLane?.inetAddress != sndPk.address) {
+                if(System.currentTimeMillis()>waitTill)
+                    throw SocketTimeoutException("No response from Server")
+                dataSSkLane = srvSSk.accept()
+            }
+
+            sndBuf[3] = 2
+            dataOutStream?.write(sndBuf,0, 4)
+            dataOutStream?.writeInt(-1)
+            dataOutStream?.writeInt(Build.VERSION.SDK_INT)
+
+            dataSSkLane?.soTimeout = 100
+            if(dataInStream?.read(recvBuf,0,12)!=12)
+                throw ConnectException("No proper response from Server")
+            else for(i in 0 until 4){
+                if(recvBuf[i]!=sndBuf[i])
+                    throw ConnectException("No proper response from Server")
+            }
 
             currentState = States.Working
             workingFor = requestFrom
+            println("\nConnected to $workingFor")
             uiHand?.post {
                 stateCB?.onJoinedWork(requestFrom)
                 stateCB?.logMessage(LogMsg("Network","Connected to ${workingFor?.name}"))
             }
-            println("\nConnected to $workingFor")
 
             sndThr = Thread(SendLooper)
             sndThr?.start()
             RecvLooper.run()
-        } catch (e: IOException) { leaveWork("WrongConn"); e.printStackTrace() }
+        }
+        catch (e: IOException) { leaveWork("WrongConn"); e.printStackTrace() }
         catch (_: SocketTimeoutException) { leaveWork("WrongConn2") }
+        catch (_: ConnectException) { leaveWork("WrongConn3") }
         sndPk.length = DataPkSize
     }
 
@@ -158,6 +198,9 @@ object WorkerBridge {
             return
 
         currentState = States.LeavingWork
+        dataSSkLane?.close()
+        dataSSkLane = null
+
         workingFor = null
         sndThr?.join()
 
@@ -175,14 +218,13 @@ object WorkerBridge {
         if(currentState != States.Working)
             return@Runnable
 
-        mainSkLane.soTimeout = Inter.toInt()
+        mainDSkLane.soTimeout = Inter.toInt()
         var disConnBy = "Master"
         try {
             while (currentState == States.Working) {
-                mainSkLane.receive(recvPk)
+                mainDSkLane.receive(recvPk)
                 if (recvPk.socketAddress == workingFor?.addr) {
                     val now = System.currentTimeMillis()
-//                    println("Time Between ${now- lastMsgRecvAt}")
                     lastMsgRecvAt = now
 
                     val taskId = recvPk.data.getShort().toInt()
@@ -203,7 +245,7 @@ object WorkerBridge {
             }
         }
         catch (_:SocketTimeoutException){ disConnBy = "Network"}
-        mainSkLane.soTimeout = 100
+        mainDSkLane.soTimeout = 100
         leaveWork(disConnBy)
     }
 
@@ -215,16 +257,16 @@ object WorkerBridge {
             return@Runnable
 
         val beatPk = DatagramPacket(byteArrayOf(0,9,0,0,0,0),6, sndPk.socketAddress)
-        mainSkLane.send(beatPk)
+        mainDSkLane.send(beatPk)
         while(currentState==States.Working){
             try{ Thread.sleep(InterBy4) }
             catch (_:InterruptedException){}
 
             if(sndPkRead == sndPkWrote)
-                mainSkLane.send(beatPk)
+                mainDSkLane.send(beatPk)
             else while(sndPkRead < sndPkWrote){
                 sndPk.setData(sndBuf, sndPkRead % BufSize, DataPkSize)
-                mainSkLane.send(sndPk)
+                mainDSkLane.send(sndPk)
                 sndPkRead += DataPkSize
             }
         }
@@ -236,6 +278,7 @@ object WorkerBridge {
             val idx = sndPkWrote % BufSize
             sndBuf.putShort(idx,id)
             sndBuf.putInt(idx+2,d1)
+//            println("Sending at pos-$sndPkWrote idx-$idx")
             sndPkWrote += DataPkSize
         }
     }
