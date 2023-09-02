@@ -7,15 +7,19 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,25 +39,34 @@ import com.S2Bytes.control5.ui.theme.Control5Theme
 import com.S2Bytes.control5.ui.theme.Negative
 import com.S2Bytes.control5.ui.theme.Neutral1
 import com.S2Bytes.control5.ui.theme.Positive
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.suspendCoroutine
 
 
 @Composable
 fun MyApp(state: WorkerBridge.States, connectedTo: Master?, logLst:List<LogMsg>, onStateChanged:()->Unit={}) {
     Column(
         modifier = Modifier
-            .padding(15.dp).fillMaxHeight(0.5f),
+            .padding(15.dp)
+            .fillMaxHeight(0.5f),
         horizontalAlignment = Alignment.CenterHorizontally
     ){
         SSButton(state, onStateChanged, Modifier.padding(top = 20.dp))
         StatusText(state, modifier = Modifier.padding(top = 30.dp))
 
+
         if((state==WorkerBridge.States.JoiningWork || state==WorkerBridge.States.Working || state==WorkerBridge.States.LeavingWork) && connectedTo!=null){
             MasterDetails(connectedTo = connectedTo, Modifier.padding(top = 30.dp))
-            LogList(messages = logLst, Modifier.weight(1f).padding(top = 30.dp))
+            LogList(messages = logLst,
+                Modifier
+                    .weight(1f)
+                    .padding(top = 30.dp))
         }else Spacer(modifier = Modifier.weight(1f))
         NetworkText(modifier = Modifier.padding(top = 10.dp))
     }
@@ -90,6 +103,7 @@ fun StatusText(state: WorkerBridge.States, modifier: Modifier = Modifier){
                     WorkerBridge.States.JoiningWork -> Neutral1
                     WorkerBridge.States.Working -> Positive
                     WorkerBridge.States.LeavingWork -> Neutral1
+                    else -> Negative
                 }
 
                 withStyle(SpanStyle(color = statusColor)) {
@@ -178,9 +192,11 @@ fun LogMessage(message:LogMsg, modifier: Modifier=Modifier){
     }
 }
 
+
 @Composable
 fun LogList(messages: List<LogMsg>, modifier: Modifier= Modifier){
-    LazyColumn(modifier = modifier.fillMaxWidth()){
+    val llState = rememberLazyListState(if(messages.isEmpty()) 0 else messages.size-1)
+    LazyColumn(modifier = modifier.fillMaxWidth(), state = llState){
         items(messages){
             LogMessage(message = it)
             Spacer(modifier = Modifier.padding(top = 7.dp))

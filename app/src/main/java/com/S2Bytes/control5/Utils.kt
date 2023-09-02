@@ -1,5 +1,6 @@
 package com.S2Bytes.control5
 
+import java.io.InputStream
 import java.net.DatagramPacket
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -97,7 +98,7 @@ data class Master(
 
     companion object{
         fun DatagramPacket.getMaster():Master?{
-            if(data.getShort()!=8.toShort() || data[3]!=0.toByte())
+            if(data.getShort()!=WorkerBridge.ConnectRequestTaskId || data[3]!=0.toByte())
                 return null
             return Master(
                 socketAddress,
@@ -126,4 +127,18 @@ fun getIpAddress(): List<String>{
         e.printStackTrace()
     }
     return ipAddresses
+}
+
+fun InputStream.readArray(size:Int):ByteArray {
+    val retArr = ByteArray(size)
+    var readBytes = 0
+
+    while (readBytes<size) {
+        readBytes += read(
+            retArr,
+            readBytes,
+            size-readBytes
+        )
+    }
+    return retArr
 }
