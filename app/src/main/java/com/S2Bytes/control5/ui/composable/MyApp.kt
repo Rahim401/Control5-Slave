@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
@@ -15,11 +14,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,24 +30,20 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import com.S2Bytes.control5.Master
-import com.S2Bytes.control5.WorkerBridge
+import com.S2Bytes.control5.WbState
 import com.S2Bytes.control5.getIpAddress
 import com.S2Bytes.control5.ui.theme.Control5Theme
 import com.S2Bytes.control5.ui.theme.Negative
 import com.S2Bytes.control5.ui.theme.Neutral1
 import com.S2Bytes.control5.ui.theme.Positive
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.coroutines.suspendCoroutine
 
 
 @Composable
-fun MyApp(state: WorkerBridge.States, connectedTo: Master?, logLst:List<LogMsg>, onStateChanged:()->Unit={}) {
+fun MyApp(state: WbState, connectedTo: Master?, logLst:List<LogMsg>, onStateChanged:()->Unit={}) {
     Column(
         modifier = Modifier
             .padding(15.dp)
@@ -61,7 +54,7 @@ fun MyApp(state: WorkerBridge.States, connectedTo: Master?, logLst:List<LogMsg>,
         StatusText(state, modifier = Modifier.padding(top = 30.dp))
 
 
-        if((state==WorkerBridge.States.JoiningWork || state==WorkerBridge.States.Working || state==WorkerBridge.States.LeavingWork) && connectedTo!=null){
+        if((state==WbState.JoiningWork || state==WbState.Working || state==WbState.LeavingWork) && connectedTo!=null){
             MasterDetails(connectedTo = connectedTo, Modifier.padding(top = 30.dp))
             LogList(messages = logLst,
                 Modifier
@@ -74,7 +67,7 @@ fun MyApp(state: WorkerBridge.States, connectedTo: Master?, logLst:List<LogMsg>,
 
 
 @Composable
-fun SSButton(state: WorkerBridge.States, onStateChanged:()->Unit, modifier: Modifier = Modifier){
+fun SSButton(state: WbState, onStateChanged:()->Unit, modifier: Modifier = Modifier){
     Button(
         onClick = { onStateChanged() },
         shape = ShapeDefaults.Small,
@@ -82,7 +75,7 @@ fun SSButton(state: WorkerBridge.States, onStateChanged:()->Unit, modifier: Modi
     ) {
         Text(
             text = when(state) {
-                WorkerBridge.States.Idle -> "Start"
+                WbState.Idle -> "Start"
                 else -> "Stop"
             },
             style = MaterialTheme.typography.headlineLarge,
@@ -91,18 +84,18 @@ fun SSButton(state: WorkerBridge.States, onStateChanged:()->Unit, modifier: Modi
 }
 
 @Composable
-fun StatusText(state: WorkerBridge.States, modifier: Modifier = Modifier){
+fun StatusText(state: WbState, modifier: Modifier = Modifier){
     Text(
         text = buildAnnotatedString {
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
                 append("Status: ")
 
                 val statusColor = when (state) {
-                    WorkerBridge.States.Idle -> Negative
-                    WorkerBridge.States.Listening -> Neutral1
-                    WorkerBridge.States.JoiningWork -> Neutral1
-                    WorkerBridge.States.Working -> Positive
-                    WorkerBridge.States.LeavingWork -> Neutral1
+                    WbState.Idle -> Negative
+                    WbState.Listening -> Neutral1
+                    WbState.JoiningWork -> Neutral1
+                    WbState.Working -> Positive
+                    WbState.LeavingWork -> Neutral1
                     else -> Negative
                 }
 
@@ -209,7 +202,7 @@ fun LogList(messages: List<LogMsg>, modifier: Modifier= Modifier){
 @Composable
 fun AppPreview(){
     var bridgeState by remember {
-        mutableStateOf(WorkerBridge.States.Working)
+        mutableStateOf(WbState.Working)
     }
     val msgList = List(20){
         LogMsg("Control","Message for $it")
@@ -217,9 +210,9 @@ fun AppPreview(){
     val connectedTo = Master(InetSocketAddress(3),"TestMaster",21)
     Control5Theme{
         MyApp(bridgeState, connectedTo, msgList){
-            bridgeState = if(bridgeState== WorkerBridge.States.Idle)
-                WorkerBridge.States.Working
-            else WorkerBridge.States.Idle
+            bridgeState = if(bridgeState== WbState.Idle)
+                WbState.Working
+            else WbState.Idle
         }
     }
 }

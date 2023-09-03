@@ -13,54 +13,58 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.S2Bytes.control5.WorkerBridge.States
 import com.S2Bytes.control5.ui.composable.LogMsg
 import com.S2Bytes.control5.ui.composable.MyApp
 import com.S2Bytes.control5.ui.theme.Control5Theme
 import java.io.DataInputStream
 import java.net.SocketException
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    var bridgeState by mutableStateOf(States.Idle)
+    var bridgeState by mutableStateOf(WbState.Idle)
     var connectedTo:Master? by mutableStateOf(null)
     val logMessages = mutableStateListOf<LogMsg>()
 
     var uiHandler:Handler? = null
-    private val taskManager = object :TaskCallback{
+    private val taskManager = object :TaskManager{
         val taskThread = HandlerThread("TaskHandler").apply{ start() }
         var taskHandler:Handler = Handler(taskThread.looper)
-        override fun handleTask(id: Short, dArr: ByteArray) {
+        override fun handleTask(id: Short, data: ByteArray) {
             uiHandler?.post {
                 println("Got(ui) at ${System.currentTimeMillis()}")
                 logMessages.add(
                     LogMsg(
                         "Task($id)",
-                        "D1:${dArr[0]}, D2:${dArr[1]}, D3:${dArr[2]}, D4:${dArr[3]}"
+                        "D1:${data[0]}, D2:${data[1]}, D3:${data[2]}, D4:${data[3]}"
                     )
                 )
-            }
-            taskHandler.post {
-                WorkerBridge.sendDB(id,dArr[0],dArr[1],dArr[2],dArr[3])
             }
         }
 
 
-        override fun handleExTask(dStream: DataInputStream) {
+        override fun handleExTask(dStm: DataInputStream) {
             taskHandler.post {
-                synchronized(dStream) {
+                var id:Short = -1
+                var strMsg = ""
+                synchronized(dStm) {
                     try {
-                        val id = dStream.readShort()
-                        val strMsg = dStream.readArray(dStream.readShort().toInt()).decodeToString()
-                        uiHandler?.post {
-                            logMessages.add(
-                                LogMsg(
-                                    "ETask($id)",
-                                    strMsg
-                                )
-                            )
-                        }
+                        id = dStm.readShort()
+                        strMsg = dStm.readArray(dStm.readShort().toInt()).decodeToString()
                     }
                     catch (_:SocketException){}
+                }
+                if(id>=0) {
+                    uiHandler?.post {
+                        logMessages.add(
+                            LogMsg(
+                                "ETask($id)",
+                                strMsg
+                            )
+                        )
+                    }
+                    WorkerBridge.replayStream(id){
+                        it.writeUTF(strMsg)
+                    }
                 }
             }
         }
@@ -75,9 +79,8 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     MyApp(bridgeState,connectedTo,logMessages){
                         when(bridgeState){
-                            States.Idle ->
-                                WorkerBridge.listenForWork(taskManager)
-                            States.Listening,States.Working ->
+                            WbState.Idle -> thread { WorkerBridge.startListening(taskManager) }
+                            WbState.Listening,WbState.Working ->
                                 WorkerBridge.stopListening()
                             else -> {}
                         }
@@ -90,7 +93,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         WorkerBridge.setStateCallback(
             object: StateCallback{
-                override fun onStateChanged(state: States) {
+                override fun onStateChanged(state: WbState) {
                     bridgeState = state
                 }
 
@@ -99,13 +102,15 @@ class MainActivity : ComponentActivity() {
                     connectedTo = to
                 }
 
-                override fun onLeftWork(by: String) {
+                override fun onLeftWork() {
                     connectedTo = null
                 }
             },
             uiHandler
         )
-        WorkerBridge.listenForWork(taskManager)
+        thread {
+            WorkerBridge.startListening(taskManager)
+        }
         super.onStart()
     }
 

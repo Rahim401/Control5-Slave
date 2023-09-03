@@ -7,16 +7,16 @@ import kotlin.concurrent.thread
 fun main(){
     thread {
         try {
-            WorkerBridge2.startListening(
+            WorkerBridge.startListening(
                 object: TaskManager{
                     override fun handleTask(id: Short, data: ByteArray) {
-                        WorkerBridge2.replayI(id, data.getInt())
+                        WorkerBridge.replayI(id, data.getInt())
                     }
 
                     override fun handleExTask(dStm: DataInputStream) {
                         val taskId = dStm.readShort()
                         val msg = dStm.readUTF()
-                        WorkerBridge2.replayStream(taskId){
+                        WorkerBridge.replayStream(taskId){
                             it.writeUTF(msg)
                         }
                     }

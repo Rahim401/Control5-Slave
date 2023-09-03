@@ -98,7 +98,7 @@ data class Master(
 
     companion object{
         fun DatagramPacket.getMaster():Master?{
-            if(data.getShort()!=WorkerBridge.ConnectRequestTaskId || data[3]!=0.toByte())
+            if(data.getShort()!=ConnectRequestTaskId || data[3]!=0.toByte())
                 return null
             return Master(
                 socketAddress,
