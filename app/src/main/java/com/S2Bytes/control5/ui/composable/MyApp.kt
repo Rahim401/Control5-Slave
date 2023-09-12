@@ -92,11 +92,12 @@ fun StatusText(state: WbState, modifier: Modifier = Modifier){
 
                 val statusColor = when (state) {
                     WbState.Idle -> Negative
+                    WbState.StartingListen -> Neutral1
                     WbState.Listening -> Neutral1
                     WbState.JoiningWork -> Neutral1
                     WbState.Working -> Positive
                     WbState.LeavingWork -> Neutral1
-                    else -> Negative
+                    WbState.StopingListen -> Neutral1
                 }
 
                 withStyle(SpanStyle(color = statusColor)) {

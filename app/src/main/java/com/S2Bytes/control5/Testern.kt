@@ -8,9 +8,9 @@ fun main(){
     thread {
         try {
             WorkerBridge.startListening(
-                object: TaskManager{
-                    override fun handleTask(id: Short, data: ByteArray) {
-                        WorkerBridge.replayI(id, data.getInt())
+                object: TaskHandler{
+                    override fun handleTask(data: ByteArray) {
+                        WorkerBridge.replayInt(data.getShort(), data.getInt(2))
                     }
 
                     override fun handleExTask(dStm: DataInputStream) {

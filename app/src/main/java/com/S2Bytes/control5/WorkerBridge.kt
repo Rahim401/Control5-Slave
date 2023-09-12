@@ -15,6 +15,7 @@ import java.net.Socket
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import kotlin.concurrent.thread
+import kotlin.system.measureNanoTime
 
 enum class WbState{
     Idle,
@@ -25,8 +26,8 @@ enum class WbState{
     LeavingWork,
     StopingListen
 }
-interface TaskManager{
-    fun handleTask(id: Short,data: ByteArray)
+interface TaskHandler{
+    fun handleTask(data: ByteArray)
     fun handleExTask(dStm:DataInputStream)
 }
 interface StateCallback{
@@ -34,6 +35,18 @@ interface StateCallback{
     fun onJoinedWork(to:Master)
     fun onLeftWork()
 }
+
+
+const val MainPort = 32654
+const val DataPort = MainPort + 1
+
+const val Inter = 1000L
+const val InterBy4 = Inter / 4
+const val LCInter = 100
+
+const val InitPkSize = 64
+const val DataPkSize = 6
+private const val BufSize = DataPkSize * 20
 
 const val ScanRequestTaskId = 0.toShort()
 const val ConnectRequestTaskId = 63.toShort()
@@ -43,19 +56,7 @@ const val BeatTaskId = 65.toShort()
 const val ExtendedTaskId = 66.toShort()
 const val DisconnectTaskId = 255.toShort()
 
-
 object WorkerBridge {
-    const val MainPort = 32654
-    const val DataPort = MainPort + 1
-
-    private const val Inter = 1000L
-    private const val InterBy4 = Inter / 4
-    private const val LCInter = 100
-
-    private const val InitPkSize = 64
-    private const val DataPkSize = 6
-    private const val BufSize = DataPkSize * 20
-
     private var mainDSkLane:DatagramSocket? = null
     private val recvBuf = ByteArray(BufSize)
     private val sndBuf = ByteArray(BufSize)
@@ -83,43 +84,40 @@ object WorkerBridge {
             }
         }
 
-    private var stateCB: Pair<Handler,StateCallback>? = null
-    fun setStateCallback(callback:StateCallback?, handler: Handler?){
-        if(callback==null || handler==null){
-            stateCB = null
-            return
-        }
-
-        stateCB = Pair(handler,callback)
-        stateCB?.first?.post {
-            stateCB?.second?.onStateChanged(currentState)
-            if(currentState == WbState.Working && workingFor !=null)
-                stateCB?.second?.onJoinedWork(workingFor!!)
-        }
-    }
-
     private var workingFor:Master? = null
     private var currentState = WbState.Idle
         set(value) {
             if (field==value)
                 return
-//            when (field){
-//                WbState.Idle -> if(value!=WbState.StartingListen) return
-//                WbState.StartingListen -> if(value!=WbState.Idle && value!=WbState.Listening) return
-//                WbState.Listening -> if(value!=WbState.StopingListen && value!=WbState.JoiningWork) return
-//                WbState.JoiningWork -> if(value!=WbState.Listening && value!=WbState.Working) return
-//                WbState.Working -> if(value!=WbState.LeavingWork && value!=WbState.StopingListen) return
-//                WbState.LeavingWork -> if(value!=WbState.Working && value!=WbState.Listening) return
-//                WbState.StopingListen -> if(value!=WbState.Listening && value!=WbState.Idle) return
-//            }
-//            println("State from $field -> $value at ${System.currentTimeMillis()}")
             field = value
-            stateCB?.first?.post {
-                stateCB?.second?.onStateChanged(field)
+            stateCallbacks.forEach {
+                it.second.post {
+                    it.first.onStateChanged(
+                        field
+                    )
+                }
             }
         }
 
-    fun startListening(taskManager:TaskManager){
+
+    private val stateCallbacks:ArrayList<Pair<StateCallback,Handler>> = ArrayList()
+    fun registerStateCallback(callback:StateCallback, handler:Handler){
+        stateCallbacks.add(
+            Pair(
+                callback, handler
+            )
+        )
+    }
+    fun unregisterStateCallback(callback:StateCallback, handler:Handler){
+        stateCallbacks.remove(
+            Pair(
+                callback, handler
+            )
+        )
+    }
+
+
+    fun startListening(taskManager:TaskHandler){
         if(currentState!=WbState.Idle)
             return
 
@@ -164,8 +162,8 @@ object WorkerBridge {
         }
         currentState = WbState.Idle
     }
-    private var sndThr:Thread? = null
-    private fun joinWorking(master:Master,taskManager:TaskManager){
+    private var senderThread:Thread? = null
+    private fun joinWorking(master:Master,taskManager:TaskHandler){
         if(currentState!=WbState.Listening)
             return
 
@@ -207,12 +205,14 @@ object WorkerBridge {
             workingFor = master
             currentState = WbState.Working
             println("Connected to $workingFor")
-            stateCB?.first?.post {
-                stateCB?.second
-                    ?.onJoinedWork(master)
+            stateCallbacks.forEach {
+                it.second.post {
+                    it.first.onJoinedWork(
+                        master
+                    )
+                }
             }
-
-            sndThr = thread(name="SendLooper"){ sendLooper() }
+            senderThread = thread(name="SendLooper"){ sendLooper() }
             recvLooper(taskManager)
             println("Disconnected from work at ${System.currentTimeMillis()}")
         }
@@ -226,13 +226,14 @@ object WorkerBridge {
         dataSSkLane = null
 
         srvSSk?.close()
-        sndThr?.interrupt()
+        senderThread?.interrupt()
         workingFor = null
         if(currentState!=WbState.StopingListen)
             currentState = WbState.Listening
-        stateCB?.first?.post {
-            stateCB?.second
-                ?.onLeftWork()
+        stateCallbacks.forEach {
+            it.second.post {
+                it.first.onLeftWork()
+            }
         }
     }
     private fun leaveWork(){
@@ -284,7 +285,7 @@ object WorkerBridge {
         catch (_: SocketException) {}
         leaveWork()
     }
-    private fun recvLooper(taskManager:TaskManager){
+    private fun recvLooper(taskManager:TaskHandler){
         if(currentState != WbState.Working)
             return
 
@@ -299,14 +300,18 @@ object WorkerBridge {
                     BeatTaskId -> {}
                     DisconnectTaskId -> break
                     ExtendedTaskId -> {
-                        taskManager.handleExTask(dataInStream!!)
+                        taskManager.handleExTask(
+                            dataInStream!!
+                        )
                     }
                     else -> {
-                        if (taskId >= 256)
-                            taskManager.handleTask(
-                                taskId,
-                                recvPk.data.copyOfRange(2,6)
-                            )
+                        val timeTook = measureNanoTime {
+                            if (taskId >= 256)
+                                taskManager.handleTask(
+                                    recvPk.data,
+                                )
+                        }
+                        println("task{$taskId} took ${timeTook}ns")
                     }
                 }
             }
@@ -316,7 +321,7 @@ object WorkerBridge {
         mainDSkLane!!.soTimeout = LCInter
     }
 
-    fun replayI(id:Short, d1:Int=0){
+    fun replayInt(id:Short, d1:Int=0){
         if(currentState != WbState.Working) return
         synchronized(sndBuf){
             val idx = sndPkWrote % BufSize
@@ -324,7 +329,7 @@ object WorkerBridge {
             sndBuf.putInt(idx+2,d1)
             sndPkWrote += DataPkSize
         }
-        sndThr?.interrupt()
+        senderThread?.interrupt()
     }
     fun replayStream(id:Short, sendReplay:(DataOutputStream)->Unit){
         if(currentState != WbState.Working) return
@@ -332,6 +337,6 @@ object WorkerBridge {
             dataOutStream?.writeShort(id.toInt())
             sendReplay(dataOutStream!!)
         }
-        replayI(ExtendedTaskId)
+        replayInt(ExtendedTaskId,id.toInt().shl(16))
     }
 }

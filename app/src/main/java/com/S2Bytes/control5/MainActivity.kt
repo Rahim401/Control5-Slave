@@ -20,27 +20,28 @@ import java.io.DataInputStream
 import java.net.SocketException
 import kotlin.concurrent.thread
 
+//val WorkerBridge = WorkerBridge()
 class MainActivity : ComponentActivity() {
-    var bridgeState by mutableStateOf(WbState.Idle)
-    var connectedTo:Master? by mutableStateOf(null)
-    val logMessages = mutableStateListOf<LogMsg>()
+    private var bridgeState by mutableStateOf(WbState.Idle)
+    private var connectedTo:Master? by mutableStateOf(null)
+    private val logMessages = mutableStateListOf<LogMsg>()
 
-    var uiHandler:Handler? = null
-    private val taskManager = object :TaskManager{
+    private lateinit var uiHandler:Handler
+    private val taskManager = object :TaskHandler{
         val taskThread = HandlerThread("TaskHandler").apply{ start() }
         var taskHandler:Handler = Handler(taskThread.looper)
-        override fun handleTask(id: Short, data: ByteArray) {
-            uiHandler?.post {
+        override fun handleTask(data: ByteArray) {
+            val taskId = data.getShort()
+            uiHandler.post {
                 println("Got(ui) at ${System.currentTimeMillis()}")
                 logMessages.add(
                     LogMsg(
-                        "Task($id)",
-                        "D1:${data[0]}, D2:${data[1]}, D3:${data[2]}, D4:${data[3]}"
+                        "Task(${taskId})",
+                        "D1:${data[2]}, D2:${data[3]}, D3:${data[4]}, D4:${data[5]}"
                     )
                 )
             }
         }
-
 
         override fun handleExTask(dStm: DataInputStream) {
             taskHandler.post {
@@ -54,7 +55,7 @@ class MainActivity : ComponentActivity() {
                     catch (_:SocketException){}
                 }
                 if(id>=0) {
-                    uiHandler?.post {
+                    uiHandler.post {
                         logMessages.add(
                             LogMsg(
                                 "ETask($id)",
@@ -69,17 +70,19 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private lateinit var taskManager2:ControlTaskMaster
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         uiHandler =  Handler(mainLooper)
+        taskManager2 = ControlTaskMaster(this,uiHandler)
         setContent {
             Control5Theme {
                 // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     MyApp(bridgeState,connectedTo,logMessages){
                         when(bridgeState){
-                            WbState.Idle -> thread { WorkerBridge.startListening(taskManager) }
+                            WbState.Idle -> thread { WorkerBridge.startListening(taskManager2) }
                             WbState.Listening,WbState.Working ->
                                 WorkerBridge.stopListening()
                             else -> {}
@@ -90,33 +93,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var stateCb = object: StateCallback{
+        override fun onStateChanged(state: WbState) {
+            bridgeState = state
+        }
+
+        override fun onJoinedWork(to: Master) {
+            logMessages.clear()
+            connectedTo = to
+        }
+
+        override fun onLeftWork() {
+            connectedTo = null
+        }
+    }
+
     override fun onStart() {
-        WorkerBridge.setStateCallback(
-            object: StateCallback{
-                override fun onStateChanged(state: WbState) {
-                    bridgeState = state
-                }
-
-                override fun onJoinedWork(to: Master) {
-                    logMessages.clear()
-                    connectedTo = to
-                }
-
-                override fun onLeftWork() {
-                    connectedTo = null
-                }
-            },
+        WorkerBridge.registerStateCallback(
+            stateCb,
             uiHandler
         )
         thread {
-            WorkerBridge.startListening(taskManager)
+            WorkerBridge.startListening(
+                taskManager2
+            )
         }
         super.onStart()
     }
 
     override fun onStop() {
         WorkerBridge.stopListening()
-        WorkerBridge.setStateCallback(null,null)
+        WorkerBridge.unregisterStateCallback(
+            stateCb,
+            uiHandler
+        )
         super.onStop()
     }
 }
