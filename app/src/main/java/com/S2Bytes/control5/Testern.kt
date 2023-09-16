@@ -10,15 +10,7 @@ fun main(){
             WorkerBridge.startListening(
                 object: TaskHandler{
                     override fun handleTask(data: ByteArray) {
-                        WorkerBridge.replayInt(data.getShort(), data.getInt(2))
-                    }
-
-                    override fun handleExTask(dStm: DataInputStream) {
-                        val taskId = dStm.readShort()
-                        val msg = dStm.readUTF()
-                        WorkerBridge.replayStream(taskId){
-                            it.writeUTF(msg)
-                        }
+//                        WorkerBridge.replaInt(data.getShort(), data.getInt(2))
                     }
                 }
             )

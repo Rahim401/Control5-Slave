@@ -6,6 +6,7 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.SocketAddress
 import java.net.SocketException
+import java.nio.ByteBuffer
 import java.util.Enumeration
 import kotlin.math.min
 
@@ -141,4 +142,10 @@ fun InputStream.readArray(size:Int):ByteArray {
         )
     }
     return retArr
+}
+
+fun ByteBuffer.putUTF(str:String){
+    val strArray = str.encodeToByteArray()
+    putShort(strArray.size.toShort())
+    put(strArray)
 }

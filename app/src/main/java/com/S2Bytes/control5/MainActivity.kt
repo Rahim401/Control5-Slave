@@ -42,33 +42,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-
-        override fun handleExTask(dStm: DataInputStream) {
-            taskHandler.post {
-                var id:Short = -1
-                var strMsg = ""
-                synchronized(dStm) {
-                    try {
-                        id = dStm.readShort()
-                        strMsg = dStm.readArray(dStm.readShort().toInt()).decodeToString()
-                    }
-                    catch (_:SocketException){}
-                }
-                if(id>=0) {
-                    uiHandler.post {
-                        logMessages.add(
-                            LogMsg(
-                                "ETask($id)",
-                                strMsg
-                            )
-                        )
-                    }
-                    WorkerBridge.replayStream(id){
-                        it.writeUTF(strMsg)
-                    }
-                }
-            }
-        }
     }
     private lateinit var taskManager2:ControlTaskMaster
 
